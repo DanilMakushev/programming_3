@@ -60,7 +60,7 @@ jobs:
           asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
           asset_content_type: application/vnd.debian.binary-package
 
-jobs:
+
   build-windows:
     runs-on: windows-latest
     permissions: write-all
