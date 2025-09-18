@@ -72,23 +72,23 @@ jobs:
       - name: Install Boost via Chocolatey
         run: choco install boost-msvc-14.3 -y
 
-      - name: Add Boost DLLs to PATH
+      - name: Add Boost to PATH
         shell: pwsh
         run: |
           $boost_path = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib"
           echo "$boost_path" >> $env:GITHUB_PATH
 
-      
-      - name: Configure CMake
-        run: |
-          cd lab1_actions
-          cmake . -DPATCH_VERSION=${{ github.run_number }}
-      
       - name: Build project
         run: |
           cd lab1_actions
           cmake --build . --config Release
-      
+
+      - name: Copy Boost DLLs to build folder
+        shell: pwsh
+        run: |
+          $boost_dll = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll"
+          Copy-Item $boost_dll -Destination "C:/Users/runner/work/programming_3/programming_3/lab1_actions/Release/"
+
       - name: Run tests
         run: |
           cd lab1_actions
