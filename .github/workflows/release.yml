@@ -61,67 +61,61 @@ jobs:
           asset_content_type: application/vnd.debian.binary-package
 
 
-  build-windows:
-    runs-on: windows-latest
-    permissions: write-all
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
+build-windows:
+  runs-on: windows-latest
+  permissions: write-all
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
 
-      - name: Install Boost via Chocolatey
-        run: choco install boost-msvc-14.3 -y
+    - name: Install Boost via Chocolatey
+      run: choco install boost-msvc-14.3 -y
 
-      - name: Add Boost to PATH
-        shell: pwsh
-        run: |
-          $boost_path = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib"
-          echo "$boost_path" >> $env:GITHUB_PATH
+    - name: Configure CMake
+      run: |
+        cd lab1_actions
+        cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_BUILD_TYPE=Release
 
-      - name: Configure CMake
-        run: |
-          cd lab1_actions
-          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_BUILD_TYPE=Release
+    - name: Build project
+      run: |
+        cd lab1_actions
+        cmake --build build --config Release
 
-      - name: Build project
-        run: |
-          cd lab1_actions
-          cmake --build . --config Release
+    - name: Copy Boost DLLs to build folder
+      shell: pwsh
+      run: |
+        $boost_dll = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll"
+        Copy-Item $boost_dll -Destination "C:/Users/runner/work/programming_3/programming_3/lab1_actions/build/Release/"
 
-      - name: Copy Boost DLLs to build folder
-        shell: pwsh
-        run: |
-          $boost_dll = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll"
-          Copy-Item $boost_dll -Destination "C:/Users/runner/work/programming_3/programming_3/lab1_actions/Release/"
+    - name: Run tests
+      run: |
+        cd lab1_actions
+        ctest -C Release --output-on-failure --test-dir build
 
-      - name: Run tests
-        run: |
-          cd lab1_actions
-          ctest -C Release --output-on-failure
-      
-      - name: Create package
-        run: |
-          cd lab1_actions
-          cmake --build . --config Release --target PACKAGE
-      
-      - name: Create Windows Release
-        id: create-release-windows
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: win-${{ github.run_number }}
-          release_name: Windows Release ${{ github.run_number }}
-          draft: false
-          prerelease: false
-      
-      - name: Upload Windows Release Asset
-        id: upload-windows-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create-release-windows.outputs.upload_url }}
-          asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-win64.exe
-          asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
-          asset_content_type: application/vnd.microsoft.portable-executable
+    - name: Create package
+      run: |
+        cd lab1_actions
+        cmake --build build --config Release --target package
+
+    - name: Create Windows Release
+      id: create-release-windows
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: win-${{ github.run_number }}
+        release_name: Windows Release ${{ github.run_number }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Windows Release Asset
+      id: upload-windows-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release-windows.outputs.upload_url }}
+        asset_path: ./lab1_actions/build/Release/helloworld-0.0.${{ github.run_number }}-win64.exe
+        asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
