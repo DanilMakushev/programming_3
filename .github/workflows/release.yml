@@ -7,7 +7,7 @@ on:
       - feature/github_actions
 
 jobs:
-  build:
+  build-ubuntu:
     runs-on: ubuntu-latest
     permissions: write-all
     steps:
@@ -59,3 +59,64 @@ jobs:
           asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-Linux.deb
           asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
           asset_content_type: application/vnd.debian.binary-package
+
+
+build-windows:
+  runs-on: windows-latest
+  permissions: write-all
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+    
+    - name: Install dependencies
+      run: |
+        choco install cmake -y
+        choco install boost -y
+        choco install visualstudio2022buildtools -y
+        choco install nsis -y
+    
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
+    
+    - name: Configure CMake
+      run: |
+        cd lab1_actions
+        cmake . -DPATCH_VERSION=${{ github.run_number }} -G "Visual Studio 17 2022"
+    
+    - name: Build project
+      run: |
+        cd lab1_actions
+        cmake --build . --config Release
+    
+    - name: Run tests
+      run: |
+        cd lab1_actions
+        cmake --build . --config Release --target RUN_TESTS
+    
+    - name: Create package
+      run: |
+        cd lab1_actions
+        cmake --build . --config Release --target PACKAGE
+    
+    - name: Create Windows Release
+      id: create-release-windows
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: win-${{ github.run_number }}
+        release_name: Windows Release ${{ github.run_number }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload Windows Release Asset
+      id: upload-windows-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create-release-windows.outputs.upload_url }}
+        asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-win64.exe
+        asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
+        asset_content_type: application/vnd.microsoft.portable-executable
