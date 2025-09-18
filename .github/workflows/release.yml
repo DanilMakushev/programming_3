@@ -73,7 +73,11 @@ jobs:
         run: choco install boost-msvc-14.3 -y
 
       - name: Add Boost DLLs to PATH
-        run: echo "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib" >> $env:GITHUB_PATH
+        shell: pwsh
+        run: |
+          $boost_path = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib"
+          echo "$boost_path" >> $env:GITHUB_PATH
+
       
       - name: Configure CMake
         run: |

@@ -19,6 +19,7 @@ set_target_properties(helloworld helloworld_cli test_version PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+# Динамическая линковка для Boost тестов
 target_compile_definitions(test_version PRIVATE BOOST_TEST_DYN_LINK)
 
 target_include_directories(helloworld PRIVATE "${CMAKE_BINARY_DIR}")
