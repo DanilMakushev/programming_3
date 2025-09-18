@@ -78,6 +78,11 @@ jobs:
           $boost_path = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib"
           echo "$boost_path" >> $env:GITHUB_PATH
 
+      - name: Configure CMake
+        run: |
+          cd lab1_actions
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_BUILD_TYPE=Release
+
       - name: Build project
         run: |
           cd lab1_actions
