@@ -62,4 +62,5 @@ jobs:
           tag_name: win-${{ github.run_number }}
           name: Windows Release ${{ github.run_number }}
           files: lab1_actions/helloworld-windows.exe
-        env: {GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}}
+        env: 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
