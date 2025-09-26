@@ -62,4 +62,4 @@ jobs:
             ./helloworld_cli ./test_version
         env:
           #для создания релиза от имени GitHub Actions и Разрешения на запись в репозиторий
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
