@@ -2,65 +2,163 @@ name: 'C++ CI'
 
 on:
   push:
-    branches: [main, feature/github_actions]
+    branches:
+      - main
+      - feature/github_actions
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    permissions: write-all
     steps:
       - uses: actions/checkout@v3
-        with: {submodules: true}
+        with:
+          submodules: true
       
-      - name: Install and Build
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install libboost-test-dev -y
+      
+      - name: Configure CMake
         run: |
-          sudo apt update && sudo apt install libboost-test-dev -y
           cd lab1_actions
           cmake . -DPATCH_VERSION=${{ github.run_number }}
+      
+      - name: Build project
+        run: |
+          cd lab1_actions
           cmake --build .
-          ctest --output-on-failure
+      
+      - name: Run tests
+        run: |
+          cd lab1_actions
+          cmake --build . --target test
+      
+      - name: Create package
+        run: |
+          cd lab1_actions
           cmake --build . --target package
       
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        id: create_release_linux
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: linux-${{ github.run_number }}
-          name: Linux Release ${{ github.run_number }}
-          files: lab1_actions/helloworld-*.deb
-        env: 
+          release_name: Linux Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload Release Asset
+        id: upload-release-asset-linux
+        uses: actions/upload-release-asset@v1
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release_linux.outputs.upload_url }}
+          asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_content_type: application/vnd.debian.binary-package
 
   build-windows:
     runs-on: windows-latest
+    permissions: write-all
     steps:
       - uses: actions/checkout@v3
-        with: {submodules: true}
+        with:
+          submodules: true
 
-      - name: Build with Boost
+      - name: Install Boost via vcpkg
         shell: pwsh
         run: |
-          # Установка Boost и сборка
-          choco install boost-msvc-14.3 -y
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install boost-test:x64-windows
+      - name: Configure and build
+        shell: pwsh
+        run: |
           cd lab1_actions
-          cmake -B build -DPATCH_VERSION=${{ github.run_number }}
+          $vcpkgToolchain = "..\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain"
           cmake --build build --config Release
           
-          # Копирование DLL если найдена
-          $dll = Get-ChildItem "C:\ProgramData\chocolatey\lib\boost-msvc-14.3" -Recurse -Filter "*test_framework*.dll" | Select-Object -First 1
-          if ($dll) { Copy-Item $dll.FullName "build\Release\" }
+          # Копируем DLL для тестов
+          Copy-Item "..\vcpkg\installed\x64-windows\bin\boost_unit_test_framework.dll" -Destination "build\Release\" -ErrorAction SilentlyContinue
+      - name: Run tests
+        run: |
+          cd lab1_actions/build
+          ctest -C Release --output-on-failure
+      - name: Create package and find it
+        shell: pwsh
+        run: |
+          cd lab1_actions
           
-          # Тесты и пакет
-          ctest --test-dir build -C Release --output-on-failure
+          # Создаем пакет
           cmake --build build --config Release --target package
           
-          # Поиск пакета
-          $package = Get-ChildItem -Path "build" -Recurse -Filter "helloworld*.exe" | Select-Object -First 1
-          if ($package) { Copy-Item $package.FullName "helloworld-windows.exe" }
+          # Ищем созданный пакет во всех возможных местах
+          Write-Host "=== Searching for package files ==="
+          $packageFiles = @()
+          
+          # Все возможные места где CPack может создать пакет
+          $searchPaths = @(
+              ".",
+              "build", 
+              "build/_CPack_Packages",
+              "build/_CPack_Packages/win64",
+              "build/_CPack_Packages/win64/NSIS",
+              "build/_CPack_Packages/x64",
+              "build/_CPack_Packages/x64/NSIS",
+              "build/package"
+          )
+          
+          foreach ($path in $searchPaths) {
+              if (Test-Path $path) {
+                  $files = Get-ChildItem -Path $path -Recurse -Filter "helloworld*.exe" -ErrorAction SilentlyContinue
+                  if ($files) {
+                      $packageFiles += $files
+                  }
+              }
+          }
+          
+          if ($packageFiles.Count -eq 0) {
+              Write-Host "No helloworld*.exe found, searching for any .exe files..."
+              $exeFiles = Get-ChildItem -Path "build" -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue
+              if ($exeFiles) {
+                  $packageFiles += $exeFiles
+              }
+          }
+          
+          if ($packageFiles.Count -gt 0) {
+              Write-Host "Found package files:"
+              $packageFiles | ForEach-Object { 
+                  Write-Host "  - $($_.FullName)"
+                  # Копируем первый найденный пакет в корень для удобства
+                  if ($packageFiles.IndexOf($_) -eq 0) {
+                      Copy-Item $_.FullName -Destination "helloworld-windows-package.exe"
+                      Write-Host "Copied to: helloworld-windows-package.exe"
+                  }
+              }
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        id: create_release_windows
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: win-${{ github.run_number }}
-          name: Windows Release ${{ github.run_number }}
-          files: lab1_actions/helloworld-windows.exe
-        env: 
+          release_name: Windows Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset from known location
+        id: upload-release-asset-windows
+        uses: actions/upload-release-asset@v1
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release_windows.outputs.upload_url }}
+          asset_path: ./lab1_actions/helloworld-windows-package.exe
+          asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
+          asset_content_type: application/vnd.microsoft.portable-executable
