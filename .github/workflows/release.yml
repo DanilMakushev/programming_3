@@ -17,19 +17,15 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install libboost-test-dev -y
       
-      - name: Configure
-        run: cd lab1_actions && cmake . -DPATCH_VERSION=${{ github.run_number }}
+      - name: Configure and Build
+        run: |
+          cd lab1_actions
+          cmake . -DPATCH_VERSION=${{ github.run_number }}
+          cmake --build .
+          cmake --build . --target test
+          cmake --build . --target package
       
-      - name: Build
-        run: cd lab1_actions && cmake --build .
-      
-      - name: Test
-        run: cd lab1_actions && ctest --output-on-failure
-      
-      - name: Package
-        run: cd lab1_actions && cmake --build . --target package
-      
-      - name: Upload to Release
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: linux-${{ github.run_number }}
@@ -45,62 +41,38 @@ jobs:
         with:
           submodules: true
 
-      - name: Install Boost via Chocolatey
-        shell: cmd
-        run: choco install boost-msvc-14.3 -y
-
-      - name: Configure
-        shell: cmd
+      - name: Install Boost and Build
+        shell: pwsh
         run: |
+          # Установка Boost
+          choco install boost-msvc-14.3 -y
+          
+          # Сборка проекта
           cd lab1_actions
-          cmake -B build -DPATCH_VERSION=%GITHUB_RUN_NUMBER%
-
-      - name: Build
-        shell: cmd
-        run: |
-          cd lab1_actions
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }}
           cmake --build build --config Release
-
-      - name: Find and Copy Boost DLL
-        shell: powershell
-        run: |
+          
+          # Копирование DLL
           $dll = Get-ChildItem "C:\ProgramData\chocolatey\lib\boost-msvc-14.3" -Recurse -Filter "boost_unit_test_framework*.dll" | Select-Object -First 1
-          if ($dll) {
-              Copy-Item $dll.FullName -Destination "lab1_actions\build\Release\"
-              Write-Host "Copied DLL: $($dll.FullName)"
-          } else {
-              Write-Host "DLL not found, tests may fail"
-          }
-
-      - name: Test
-        shell: cmd
-        run: |
-          cd lab1_actions\build
+          Copy-Item $dll.FullName -Destination "build\Release\"
+          
+          # Тесты
+          cd build
           ctest -C Release --output-on-failure
-
-      - name: Package
-        shell: cmd
-        run: |
-          cd lab1_actions
+          
+          # Создание пакета
+          cd ..
           cmake --build build --config Release --target package
+          
+          # Поиск пакета
+          $package = Get-ChildItem -Path "build" -Recurse -Filter "helloworld*.exe" | Select-Object -First 1
+          Copy-Item $package.FullName -Destination "helloworld-windows.exe"
 
-      - name: Find Package
-        shell: powershell
-        run: |
-          $package = Get-ChildItem -Path "lab1_actions" -Recurse -Filter "helloworld*.exe" | Where-Object { $_.Name -notlike "*test*" } | Select-Object -First 1
-          if ($package) {
-              Write-Host "Found package: $($package.FullName)"
-          } else {
-              Write-Host "Package not found"
-          }
-
-      - name: Upload to Release
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: win-${{ github.run_number }}
           name: Windows Release ${{ github.run_number }}
-          files: |
-            lab1_actions/build/helloworld-0.0.${{ github.run_number }}-win64.exe
-            lab1_actions/helloworld-*.exe
+          files: lab1_actions/helloworld-windows.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
