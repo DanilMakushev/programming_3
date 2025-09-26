@@ -52,9 +52,14 @@ jobs:
           cmake -B build -DPATCH_VERSION=${{ github.run_number }}
           cmake --build build --config Release
           
-          # Копирование DLL
+          # Поиск и копирование DLL
           $dll = Get-ChildItem "C:\ProgramData\chocolatey\lib\boost-msvc-14.3" -Recurse -Filter "boost_unit_test_framework*.dll" | Select-Object -First 1
-          Copy-Item $dll.FullName -Destination "build\Release\"
+          if ($dll) {
+              Copy-Item $dll.FullName -Destination "build\Release\"
+              Write-Host "DLL copied: $($dll.FullName)"
+          } else {
+              Write-Host "DLL not found, tests may fail"
+          }
           
           # Тесты
           cd build
@@ -66,7 +71,9 @@ jobs:
           
           # Поиск пакета
           $package = Get-ChildItem -Path "build" -Recurse -Filter "helloworld*.exe" | Select-Object -First 1
-          Copy-Item $package.FullName -Destination "helloworld-windows.exe"
+          if ($package) {
+              Copy-Item $package.FullName -Destination "helloworld-windows.exe"
+          }
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
