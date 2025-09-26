@@ -1,9 +1,5 @@
 name: 'C++ CI'
 
-on:
-  push:
-    branches: ['lab*']
-
 permissions:
   contents: write
 
