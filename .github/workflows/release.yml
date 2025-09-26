@@ -71,7 +71,6 @@ jobs:
       - name: Install Boost via vcpkg
         shell: pwsh
         run: |
-          # Клонируем и настраиваем vcpkg
           git clone https://github.com/Microsoft/vcpkg.git
           cd vcpkg
           .\bootstrap-vcpkg.bat
@@ -94,49 +93,47 @@ jobs:
       - name: Copy Boost DLLs for tests
         shell: pwsh
         run: |
-          # Копируем необходимые DLL в папку с исполняемыми файлами
           $vcpkgBin = "vcpkg\installed\x64-windows\bin"
           $buildDir = "lab1_actions\build\Release"
           
           if (Test-Path $vcpkgBin) {
-              # Копируем основную DLL для тестов
-              $dllFiles = Get-ChildItem "$vcpkgBin\boost_unit_test_framework*.dll"
-              if ($dllFiles) {
-                  foreach ($dll in $dllFiles) {
-                      Write-Host "Copying $($dll.Name)"
-                      Copy-Item $dll.FullName -Destination $buildDir
-                  }
-              } else {
-                  Write-Host "No Boost test framework DLLs found"
+              Get-ChildItem "$vcpkgBin\boost_unit_test_framework*.dll" | ForEach-Object {
+                  Write-Host "Copying $($_.Name)"
+                  Copy-Item $_.FullName -Destination $buildDir
               }
-              
-              # Копируем другие возможные зависимости Boost
-              $additionalDlls = @("boost_system*.dll", "boost_filesystem*.dll")
-              foreach ($pattern in $additionalDlls) {
-                  Get-ChildItem "$vcpkgBin\$pattern" | ForEach-Object {
-                      Write-Host "Copying additional DLL: $($_.Name)"
-                      Copy-Item $_.FullName -Destination $buildDir
-                  }
-              }
-          } else {
-              Write-Host "vcpkg bin directory not found: $vcpkgBin"
           }
-          
-          # Проверяем что скопировалось
-          Write-Host "Files in build directory:"
-          Get-ChildItem $buildDir | Select-Object Name, Length
 
       - name: Run tests
         shell: pwsh
         run: |
           cd lab1_actions/build
-          Write-Host "Running tests..."
           ctest -C Release --output-on-failure
 
-      - name: Create package
+      - name: Create package and find artifacts
+        shell: pwsh
         run: |
           cd lab1_actions
           cmake --build build --config Release --target package
+          
+          # Ищем созданные пакеты
+          Write-Host "Searching for package files..."
+          Get-ChildItem -Path . -Recurse -Filter "helloworld*.exe" | ForEach-Object {
+              Write-Host "Found package: $($_.FullName)"
+          }
+          Get-ChildItem -Path . -Recurse -Filter "*.exe" | ForEach-Object {
+              Write-Host "Found EXE: $($_.FullName)"
+          }
+          Get-ChildItem -Path build -Recurse -Filter "*" | ForEach-Object {
+              Write-Host "Build item: $($_.FullName)"
+          }
+
+      - name: List all files to debug
+        shell: pwsh
+        run: |
+          Write-Host "=== Listing all files in workspace ==="
+          Get-ChildItem -Path . -Recurse | Where-Object { $_.Name -like "*helloworld*" -or $_.Name -like "*.exe" } | ForEach-Object {
+              Write-Host "$($_.FullName) - Size: $($_.Length) bytes"
+          }
 
       - name: Create Release
         id: create_release_windows
@@ -149,7 +146,7 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Release Asset
+      - name: Upload Windows Release Asset
         id: upload-release-asset-windows
         uses: actions/upload-release-asset@v1
         env:
@@ -159,3 +156,29 @@ jobs:
           asset_path: ./lab1_actions/build/helloworld-0.0.${{ github.run_number }}-win64.exe
           asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
           asset_content_type: application/vnd.microsoft.portable-executable
+
+      - name: Upload alternative package locations
+        if: failure() && steps.upload-release-asset-windows.outcome == 'failure'
+        shell: pwsh
+        run: |
+          # Пробуем разные возможные пути
+          $possiblePaths = @(
+              "lab1_actions/build/helloworld-0.0.${{ github.run_number }}-win64.exe",
+              "lab1_actions/build/helloworld-*.exe",
+              "lab1_actions/helloworld-*.exe", 
+              "lab1_actions/build/package/helloworld-*.exe",
+              "lab1_actions/build/_CPack_Packages/win64/NSIS/helloworld-*.exe"
+          )
+          
+          foreach ($pathPattern in $possiblePaths) {
+              $files = Get-ChildItem -Path $pathPattern -ErrorAction SilentlyContinue
+              if ($files) {
+                  foreach ($file in $files) {
+                      Write-Host "Uploading alternative file: $($file.FullName)"
+                      gh release upload win-${{ github.run_number }} $file.FullName --clobber
+                  }
+                  break
+              }
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
