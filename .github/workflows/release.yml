@@ -1,3 +1,65 @@
+name: 'C++ CI'
+
+on:
+  push:
+    branches:
+      - main
+      - feature/github_actions
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install libboost-test-dev -y
+      
+      - name: Configure CMake
+        run: |
+          cd lab1_actions
+          cmake . -DPATCH_VERSION=${{ github.run_number }}
+      
+      - name: Build project
+        run: |
+          cd lab1_actions
+          cmake --build .
+      
+      - name: Run tests
+        run: |
+          cd lab1_actions
+          cmake --build . --target test
+      
+      - name: Create package
+        run: |
+          cd lab1_actions
+          cmake --build . --target package
+      
+      - name: Create Release
+        id: create_release_linux
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: linux-${{ github.run_number }}
+          release_name: Linux Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+      
+      - name: Upload Release Asset
+        id: upload-release-asset-linux
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release_linux.outputs.upload_url }}
+          asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_content_type: application/vnd.debian.binary-package
+
   build-windows:
     runs-on: windows-latest
     permissions: write-all
@@ -6,39 +68,69 @@
         with:
           submodules: true
 
-      - name: Install Boost via Chocolatey
-        run: choco install boost-msvc-14.3 -y
+      - name: Install Boost via vcpkg
+        shell: pwsh
+        run: |
+          # Клонируем и настраиваем vcpkg
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install boost-test:x64-windows
+          cd ..
 
-      - name: Configure CMake
+      - name: Configure CMake with vcpkg toolchain
+        shell: pwsh
         run: |
           cd lab1_actions
-          cmake -B build -DPATCH_VERSION=${{ github.run_number }}
+          $vcpkgToolchain = "..\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          Write-Host "Using vcpkg toolchain: $vcpkgToolchain"
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build project
         run: |
           cd lab1_actions
           cmake --build build --config Release
 
-      - name: Copy Boost DLLs
+      - name: Copy Boost DLLs for tests
         shell: pwsh
         run: |
-          # Простой способ найти и скопировать Boost DLL
-          $searchPath = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3"
-          if (Test-Path $searchPath) {
-              $dllFiles = Get-ChildItem -Path $searchPath -Recurse -Filter "boost_unit_test_framework*.dll"
+          # Копируем необходимые DLL в папку с исполняемыми файлами
+          $vcpkgBin = "vcpkg\installed\x64-windows\bin"
+          $buildDir = "lab1_actions\build\Release"
+          
+          if (Test-Path $vcpkgBin) {
+              # Копируем основную DLL для тестов
+              $dllFiles = Get-ChildItem "$vcpkgBin\boost_unit_test_framework*.dll"
               if ($dllFiles) {
                   foreach ($dll in $dllFiles) {
-                      Write-Host "Copying DLL: $($dll.FullName)"
-                      Copy-Item $dll.FullName -Destination "lab1_actions\build\Release\"
+                      Write-Host "Copying $($dll.Name)"
+                      Copy-Item $dll.FullName -Destination $buildDir
                   }
               } else {
-                  Write-Host "No Boost DLLs found, tests may fail"
+                  Write-Host "No Boost test framework DLLs found"
               }
+              
+              # Копируем другие возможные зависимости Boost
+              $additionalDlls = @("boost_system*.dll", "boost_filesystem*.dll")
+              foreach ($pattern in $additionalDlls) {
+                  Get-ChildItem "$vcpkgBin\$pattern" | ForEach-Object {
+                      Write-Host "Copying additional DLL: $($_.Name)"
+                      Copy-Item $_.FullName -Destination $buildDir
+                  }
+              }
+          } else {
+              Write-Host "vcpkg bin directory not found: $vcpkgBin"
           }
+          
+          # Проверяем что скопировалось
+          Write-Host "Files in build directory:"
+          Get-ChildItem $buildDir | Select-Object Name, Length
 
       - name: Run tests
+        shell: pwsh
         run: |
           cd lab1_actions/build
+          Write-Host "Running tests..."
           ctest -C Release --output-on-failure
 
       - name: Create package
