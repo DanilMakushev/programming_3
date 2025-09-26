@@ -2,64 +2,117 @@ name: 'C++ CI'
 
 on:
   push:
-    branches: [ main, master ]
-
-permissions:
-  contents: write
+    branches:
+      - main
+      - feature/github_actions
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    
-    runs-on: ${{ matrix.os }}
-    
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions: write-all
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: true
       
-      - name: Install Windows dependencies
-        if: matrix.os == 'windows-latest'
-
-        # Устанавливаем vcpkg и Boost
-        #vcpkg не предустановлен на раннерах GitHub Actions, поэтому его нужно скачать
-        #Запускается скрипт начальной настройки vcpkg для Windows
-        run: |
-          
-          git clone https://github.com/Microsoft/vcpkg.git 
-          .\vcpkg\bootstrap-vcpkg.bat
-         
-          .\vcpkg\vcpkg install boost-test:x64-windows
-          echo "VCPKG_ROOT=$env:GITHUB_WORKSPACE\vcpkg" >> $env:GITHUB_ENV
-          choco install gh -y
-      
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install libboost-test-dev -y
       
-      - run: cmake . -DPATCH_VERSION=${{ github.run_number }} #запускает CMake для подготовки проекта к сборке
-      - run: cmake --build . 
-      
-      - run: ctest --verbose --output-on-failure
-      
-      - name: Create Release on Windows
-        if: matrix.os == 'windows-latest'
-        #создания бинарника исполняемого .exe файла
+      - name: Configure CMake
         run: |
-          gh release create win-build-${{ github.run_number }} `
-            --title "Windows Build ${{ github.run_number }}" `
-            ./Debug/helloworld_cli.exe ./Debug/test_version.exe 
+          cd lab1_actions
+          cmake . -DPATCH_VERSION=${{ github.run_number }}
+      
+      - name: Build project
+        run: |
+          cd lab1_actions
+          cmake --build .
+      
+      - name: Run tests
+        run: |
+          cd lab1_actions
+          cmake --build . --target test
+      
+      - name: Create package
+        run: |
+          cd lab1_actions
+          cmake --build . --target package
+      
+      - name: Create Release
+        id: create_release_linux
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: linux-${{ github.run_number }}
+          release_name: Linux Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
       
-      - name: Create Release on Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          gh release create linux-build-${{ github.run_number }} \
-            --title "Linux Build ${{ github.run_number }}" \
-            ./helloworld_cli ./test_version
+      - name: Upload Release Asset
+        id: upload-release-asset-linux
+        uses: actions/upload-release-asset@v1
         env:
-          #для создания релиза от имени GitHub Actions и Разрешения на запись в репозиторий
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release_linux.outputs.upload_url }}
+          asset_path: ./lab1_actions/helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
+          asset_content_type: application/vnd.debian.binary-package
+
+  build-windows:
+    runs-on: windows-latest
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Install Boost dependencies
+        run: |
+          # Устанавливаем Boost через vcpkg
+          git clone https://github.com/Microsoft/vcpkg.git
+          .\vcpkg\bootstrap-vcpkg.bat
+          .\vcpkg\vcpkg install boost-test:x64-windows
+
+      - name: Configure CMake
+        run: |
+          cd lab1_actions
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build project
+        run: |
+          cd lab1_actions
+          cmake --build build --config Release
+
+      - name: Run tests
+        run: |
+          cd lab1_actions/build
+          ctest -C Release --output-on-failure
+
+      - name: Create package
+        run: |
+          cd lab1_actions
+          cmake --build build --config Release --target package
+
+      - name: Create Release
+        id: create_release_windows
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: win-${{ github.run_number }}
+          release_name: Windows Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-asset-windows
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release_windows.outputs.upload_url }}
+          asset_path: ./lab1_actions/build/helloworld-0.0.${{ github.run_number }}-win64.exe
+          asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
+          asset_content_type: application/vnd.microsoft.portable-executable
