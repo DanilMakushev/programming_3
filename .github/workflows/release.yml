@@ -143,12 +143,6 @@ jobs:
                       Write-Host "Copied to: helloworld-windows-package.exe"
                   }
               }
-          } else {
-              Write-Host "WARNING: No package files found!"
-              # Выводим список всех файлов для отладки
-              Write-Host "=== All files in build directory ==="
-              Get-ChildItem -Path "build" -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-          }
 
       - name: Create Release
         id: create_release_windows
@@ -171,3 +165,4 @@ jobs:
           asset_path: ./lab1_actions/helloworld-windows-package.exe
           asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
           asset_content_type: application/vnd.microsoft.portable-executable
+
