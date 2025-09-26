@@ -26,7 +26,8 @@ jobs:
           tag_name: linux-${{ github.run_number }}
           name: Linux Release ${{ github.run_number }}
           files: lab1_actions/helloworld-*.deb
-        env: {GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}}
+        env: 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows:
     runs-on: windows-latest
