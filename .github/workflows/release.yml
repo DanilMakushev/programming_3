@@ -68,19 +68,55 @@ jobs:
         with:
           submodules: true
 
-      - name: Install Boost dependencies
+      - name: Setup MSVC Environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Boost via vcpkg (correct way)
+        shell: pwsh
         run: |
-          # Устанавливаем Boost через vcpkg
+          # Клонируем и настраиваем vcpkg
           git clone https://github.com/Microsoft/vcpkg.git
           cd vcpkg
           .\bootstrap-vcpkg.bat
+          .\vcpkg integrate install
           .\vcpkg install boost-test:x64-windows
           cd ..
+          
+          # Устанавливаем переменные окружения для CMake
+          $vcpkgDir = "$pwd\vcpkg"
+          echo "VCPKG_ROOT=$vcpkgDir" >> $env:GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=$vcpkgDir\installed\x64-windows" >> $env:GITHUB_ENV
 
-      - name: Configure CMake
+      - name: Configure CMake with explicit Boost paths
+        shell: pwsh
         run: |
           cd lab1_actions
-          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_TOOLCHAIN_FILE=../../vcpkg/scripts/buildsystems/vcpkg.cmake
+          
+          # Указываем явные пути к Boost
+          $boostRoot = "$pwd\..\vcpkg\installed\x64-windows"
+          Write-Host "Boost root: $boostRoot"
+          
+          cmake -B build `
+            -DPATCH_VERSION=${{ github.run_number }} `
+            -DBOOST_ROOT="$boostRoot" `
+            -DBoost_DIR="$boostRoot\lib\cmake\Boost-1.84.0" `
+            -DBOOST_INCLUDEDIR="$boostRoot\include" `
+            -DBOOST_LIBRARYDIR="$boostRoot\lib" `
+            -DCMAKE_PREFIX_PATH="$boostRoot"
+
+      - name: Alternative Configure CMake (if above fails)
+        shell: pwsh
+        run: |
+          cd lab1_actions
+          
+          # Альтернативный способ - используем toolchain файл правильно
+          $vcpkgToolchain = "$pwd\..\vcpkg\scripts\buildsystems\vcpkg.cmake"
+          Write-Host "VCPKG toolchain: $vcpkgToolchain"
+          
+          cmake -B build `
+            -DPATCH_VERSION=${{ github.run_number }} `
+            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build project
         run: |
@@ -91,22 +127,33 @@ jobs:
         shell: pwsh
         run: |
           cd lab1_actions/build/Release
-          # Копируем необходимые DLL для тестов
-          Copy-Item "../../../vcpkg/installed/x64-windows/bin/boost_unit_test_framework.dll" -Destination "." -ErrorAction SilentlyContinue
-          if (Test-Path "boost_unit_test_framework.dll") {
-            Write-Host "Boost DLL copied successfully"
-          } else {
-            Write-Host "Searching for Boost DLL..."
-            Get-ChildItem "../../../vcpkg" -Recurse -Filter "boost_unit_test_framework*.dll" | ForEach-Object { 
-                Write-Host "Found: $($_.FullName)"
-                Copy-Item $_.FullName -Destination "."
-            }
+          
+          # Копируем все необходимые Boost DLL
+          $vcpkgBin = "$pwd\..\..\..\vcpkg\installed\x64-windows\bin"
+          if (Test-Path $vcpkgBin) {
+              Get-ChildItem "$vcpkgBin\boost_unit_test_framework*.dll" | ForEach-Object {
+                  Write-Host "Copying $($_.Name)"
+                  Copy-Item $_.FullName -Destination "."
+              }
           }
+          
+          # Проверяем, что DLL скопировались
+          Get-ChildItem *.dll | ForEach-Object { Write-Host "Available DLL: $($_.Name)" }
 
       - name: Run tests
+        shell: pwsh
         run: |
           cd lab1_actions/build
-          ctest -C Release --output-on-failure
+          
+          # Сначала проверяем, что тестовый исполняемый файл существует
+          if (Test-Path "Release\test_version.exe") {
+              Write-Host "Test executable exists"
+              # Проверяем зависимости
+              Write-Host "Checking dependencies..."
+              & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" /dependents "Release\test_version.exe"
+          }
+          
+          ctest -C Release --output-on-failure -V
 
       - name: Create package
         run: |
