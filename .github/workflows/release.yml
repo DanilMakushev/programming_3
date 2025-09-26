@@ -60,7 +60,6 @@ jobs:
           asset_name: helloworld-0.0.${{ github.run_number }}-Linux.deb
           asset_content_type: application/vnd.debian.binary-package
 
-
   build-windows:
     runs-on: windows-latest
     permissions: write-all
@@ -69,29 +68,108 @@ jobs:
         with:
           submodules: true
 
+      - name: Find available Boost versions
+        shell: pwsh
+        run: |
+          choco search boost-msvc -y
+
       - name: Install Boost via Chocolatey
         run: choco install boost-msvc-14.3 -y
 
-      - name: Configure CMake
+      - name: Find Boost installation path
+        shell: pwsh
         run: |
+          $boostPath = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3"
+          if (Test-Path $boostPath) {
+            Write-Host "Boost found at: $boostPath"
+            Get-ChildItem -Path $boostPath -Recurse -Filter "*.dll" | ForEach-Object { Write-Host "DLL: $($_.FullName)" }
+          } else {
+            Write-Host "Boost not found at expected path"
+            # Try alternative paths
+            $alternativePaths = @(
+              "C:\tools\boost",
+              "C:\local\boost",
+              "C:\boost"
+            )
+            foreach ($path in $alternativePaths) {
+              if (Test-Path $path) {
+                Write-Host "Found Boost at: $path"
+                Get-ChildItem -Path $path -Recurse -Filter "boost_unit_test_framework*.dll" | ForEach-Object { Write-Host "Test DLL: $($_.FullName)" }
+              }
+            }
+          }
+
+      - name: Configure CMake with Boost path
+        shell: pwsh
+        run: |
+          # Try to find Boost and set environment variable
+          $boostRoot = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost"
+          if (Test-Path $boostRoot) {
+            Write-Host "Using Boost at: $boostRoot"
+            $env:BOOST_ROOT = $boostRoot
+          }
           cd lab1_actions
-          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DPATCH_VERSION=${{ github.run_number }} -DCMAKE_BUILD_TYPE=Release -DBOOST_ROOT="$env:BOOST_ROOT"
 
       - name: Build project
         run: |
           cd lab1_actions
           cmake --build build --config Release
 
-      - name: Copy Boost DLLs to build folder
+      - name: Find and copy Boost DLLs
         shell: pwsh
         run: |
-          $boost_dll = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll"
-          Copy-Item $boost_dll -Destination "C:/Users/runner/work/programming_3/programming_3/lab1_actions/build/Release/"
+          # Search for the Boost test framework DLL
+          $possiblePaths = @(
+              "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\stage\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll",
+              "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\lib64-msvc-14.3\boost_unit_test_framework-vc143-mt-x64-1_87.dll",
+              "C:\ProgramData\chocolatey\lib\boost-msvc-14.3\tools\boost\lib\boost_unit_test_framework-vc143-mt-x64-1_87.dll"
+          )
+          
+          $dllFound = $false
+          foreach ($path in $possiblePaths) {
+              if (Test-Path $path) {
+                  Write-Host "Found Boost DLL at: $path"
+                  Copy-Item $path -Destination "lab1_actions/build/Release/"
+                  $dllFound = $true
+                  break
+              }
+          }
+          
+          if (-not $dllFound) {
+              Write-Host "Searching for any Boost test framework DLL..."
+              $searchPath = "C:\ProgramData\chocolatey\lib\boost-msvc-14.3"
+              if (Test-Path $searchPath) {
+                  $dllFiles = Get-ChildItem -Path $searchPath -Recurse -Filter "boost_unit_test_framework*.dll"
+                  if ($dllFiles.Count -gt 0) {
+                      foreach ($dll in $dllFiles) {
+                          Write-Host "Found DLL: $($dll.FullName)"
+                          Copy-Item $dll.FullName -Destination "lab1_actions/build/Release/"
+                      }
+                  } else {
+                      Write-Host "No Boost test framework DLLs found. Trying alternative approach..."
+                  }
+              }
+          }
+
+      - name: Alternative - Install vcpkg for Boost
+        if: failure()
+        shell: pwsh
+        run: |
+          # Fallback: use vcpkg to install Boost
+          git clone https://github.com/Microsoft/vcpkg.git
+          .\vcpkg\bootstrap-vcpkg.bat
+          .\vcpkg\vcpkg install boost-test:x64-windows
 
       - name: Run tests
+        shell: pwsh
         run: |
-          cd lab1_actions
-          ctest -C Release --output-on-failure --test-dir build
+          cd lab1_actions/build
+          # First, check if test executable exists and has dependencies
+          if (Test-Path "Release\*.exe") {
+              Get-ChildItem "Release\*.exe" | ForEach-Object { Write-Host "Found executable: $($_.Name)" }
+          }
+          ctest -C Release --output-on-failure
 
       - name: Create package
         run: |
@@ -116,6 +194,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create-release-windows.outputs.upload_url }}
-          asset_path: ./lab1_actions/build/Release/helloworld-0.0.${{ github.run_number }}-win64.exe
+          asset_path: ./lab1_actions/build/helloworld-0.0.${{ github.run_number }}-win64.exe
           asset_name: helloworld-0.0.${{ github.run_number }}-win64.exe
           asset_content_type: application/vnd.microsoft.portable-executable
