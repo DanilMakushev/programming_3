@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.10)
 cmake_policy(SET CMP0167 OLD)
 
 set(PATCH_VERSION "1" CACHE INTERNAL "Patch version")
-set(PROJECT_VERSION 1.0.${PATCH_VERSION})
+set(PROJECT_VESRION 0.0.${PATCH_VERSION})
 
-project(helloworld VERSION ${PROJECT_VERSION})
+project(helloworld VERSION ${PROJECT_VESRION})
 
 find_package(Boost COMPONENTS unit_test_framework REQUIRED)
 
@@ -35,10 +35,15 @@ target_link_libraries(test_version
 )
 
 if (MSVC)
-    target_compile_options(helloworld_cli PRIVATE/W4)
-    target_compile_options(helloworld PRIVATE/W4)
-    target_compile_options(test_version PRIVATE/W4)
-
+    target_compile_options(helloworld_cli PRIVATE
+        /W4
+    )
+    target_compile_options(helloworld PRIVATE
+        /W4
+    )
+    target_compile_options(test_version PRIVATE
+        /W4
+    )
 else ()
     target_compile_options(helloworld_cli PRIVATE
         -Wall -Wextra -pedantic -Werror
@@ -57,9 +62,11 @@ install(TARGETS helloworld_cli RUNTIME DESTINATION bin)
 
 set(CPACK_GENERATOR DEB)
 
-set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+
+set(CPACK_PACKAGE_CONTACT example@example.com)
 
 include(CPack)
 
